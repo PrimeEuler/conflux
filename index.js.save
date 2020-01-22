@@ -1,0 +1,81 @@
+var fs          = require('fs');
+var crypto      = require('crypto');
+var events      = require('events');
+var express     = require('express');
+var io          = require('socket.io');
+var ss          = require('socket.io-stream');
+
+function conflux(){
+    var self    = new events.EventEmitter()
+    var pki     = {
+        privateKey: fs.readFileSync(__dirname + '/crypto/host.key'),
+        key:        fs.readFileSync(__dirname + '/crypto/host.key'),
+        cert:       fs.readFileSync(__dirname + '/crypto/host.crt'),
+        passphrase: fs.readFileSync(__dirname + '/crypto/passphrase','utf).toString()
+    }
+    var api     = express();
+    var server  = require('https').createServer(pki , api);
+        self.pubsub         = require('pubsub-js');
+        self.path       = function( path ){
+            api.use(express.static(path));
+            api.get('/', function (req, res) {
+                res.sendFile(path + '/index.html');
+            });
+        }
+        self.createStream   = function(options,socket){
+            var stream = ss.createStream(options);
+                sbind(stream,socket)
+                ss(socket).emit('stream', stream, options )
+            return stream
+        }
+        self.listen         = function(port,cb){
+            server.listen(port,cb)
+        }
+        
+        io(server).on('connection', on_connection ) ;
+        function sbind(stream,socket){
+            function emit(e){
+                stream.emit(e.event,e.data);
+            }
+            function absorb(){
+                ss(socket).removeListener(stream.id,emit)
+            }
+            ss(socket).on( stream.id, emit ) ;
+            stream.on('end', absorb )
+            stream.on('close', absorb )
+            stream.on('socket.io', function(e){
+                ss(socket).emit( stream.id, e )
+            })
+        }
+        function on_connection(socket, options){
+            socket.on('rtt', function(ts, cb){ cb(ts) })
+            self.emit('socket', socket, options)
+            ss(socket).on('stream', function(stream, options){
+                on_stream(stream, options, socket)
+            })
+        }   
+        function on_stream(stream, options, socket ){
+            sbind( stream, socket )
+            self.emit('stream', stream, options, socket)
+            switch(options.service){
+                case 'pub':
+                    stream.on("data",function(data){
+                        self.pubsub.publish( options.topic ,data)
+                    })
+                    break;
+                case 'sub':
+                    var subscriber = self.pubsub.subscribe( options.topic, function(msg,data){ 
+                            stream.write(data)
+                    })
+                    stream.on('end',function(){
+                        self.pubsub.unsubscribe(subscriber)
+                    })
+                    break;
+            }
+            
+        }
+        
+        return self
+
+}
+module.exports = conflux

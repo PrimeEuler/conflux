@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+    <title>utils</title>
+     <!--custom jquery-->
+    <link rel="stylesheet"  type="text/css" media="screen" href="css/flat-8139-theme/jquery-ui-1.10.4.custom.min.css"/>
+    <script type='text/javascript' src="js/jquery-1.10.2.min.js"></script>
+    <script type='text/javascript' src="js/jquery-ui-1.10.4.custom.min.js"></script>
+    <!--touch, dialogextend and jquery mouswheel plugin -->
+    <script type='text/javascript' src="js/jquery.mousewheel.js"></script>
+    <script type="text/javascript" src="js/jquery.dialogextend.min.js"></script>
+    <script type="text/javascript" src="js/jquery.ui.touch-punch.min.js"></script>
+    <script type="text/javascript" src="js/jquery.sparkline.min.js"></script>
+    <!--json2html-->
+    <script type="text/javascript" src="js/json2html.js"></script>
+    <script type="text/javascript" src="js/jquery.json2html.js"></script>
+    <!--socket.io-stream-->
+    <script type='text/javascript' src="js/socket.io.js"></script>
+    <script type='text/javascript' src="js/socket.io-stream.js"></script>
+    <script type="text/javascript" src="js/pubsub.min.js"></script>
+    <!--xterm-->
+    <link rel="stylesheet" href="css/client.css"/>
+    <link rel="stylesheet" href="js/bower_components/xterm.js/dist/xterm.css" />
+    <script type="text/javascript" src="js/bower_components/xterm.js/dist/xterm.js"></script>
+	<script type="text/javascript" src="js/bower_components/xterm.js/addons/fit/fit.js"></script>
+	<!--ace editor-->
+	<script type="text/javascript" src="js/ace.js"></script>
+    <!--node.js-->
+    <script type="text/javascript" src="js/util-inspect-web.js"></script>
+    <script type="text/javascript" src="js/events-browser.js"></script>
+    <script type="text/javascript" src="js/object-path-browser.js"></script>
+    <script type="text/javascript" src="js/stream-browser.js"></script>
+    <script type="text/javascript" src="js/conflux.browserify.js"></script>
+    <script type="text/javascript" src="js/accessor.browserify.js"></script>
+    <script type="text/javascript" src="js/repl.browserify.js"></script>
+    <script type="text/javascript" src="js/ansi.js"></script>
+</head>
+<body >
+<div id="network"></div>
+    <script type="text/javascript">
+    var repl        = require('repl')
+    var conflux     = require('conflux')
+    var accessor    = require('accessor')
+    var objectPath  = require('object-path')
+    var events      = require('events');
+    var inspect     = require('util-inspect');
+    var stream      = require('stream');
+    var xIndex      = 0;
+    var socket      = { connected:false };
+    var cfx         = new conflux()
+    var local       = new accessor()
+    var remote      = new accessor()
+    var network     = {
+            socket: {
+                url:'https://127.0.0.1:8444/',
+                id:'',
+                rtt:0,
+                connect:function(){
+                    var rtt = createPlotter("network.socket.rtt.plot", "network.socket.rtt", 0 )
+                        clearInterval(rtt.interval) 
+                        cfx.connect( io, network.socket.url, ss)
+                        cfx.on('rtt',function(){
+                            network.socket.rtt = socket.rtt
+                            rtt.update(socket.rtt)
+                        })
+                },
+                connected:false,
+                error:'NONE'
+            },
+            stream: {
+                pty:{
+                    server_shell:function(){
+                        var stream =  cfx.createStream({ objectMode:true, service:'repl'  },socket)
+                        vt100( stream )
+                    },
+                    client_shell:function(){
+                        var shell           = new repl()
+                            shell.id        = 'shell'
+                            shell.username  = function(text,callback){ return callback(true) }
+                            shell.password  = function(text,callback){ return callback(true) }
+                            shell.auth      = function(){ 
+                                    shell.ask('username', function( username ){
+                                        shell.username(username, function(accept){
+                                            shell.access.user = username
+                                            if(accept){
+                                                shell.ask('password', function( password ){
+                                                    shell.password(password, function(accept){
+                                                        shell.access.accept = accept
+                                                        if(accept){
+                                                            shell.user      = username
+                                                            shell.at        = '@'
+                                                            shell.home      = 'context'
+                                                            shell.context.global = window
+                                                            shell.context.shell  = shell
+                                                            shell.context.network = cfx
+                                                        }else if(shell.access.failures < 2){
+                                                            shell.access.failures ++
+                                                            shell.auth()
+                                                        }else{
+                                                            shell.kill()
+                                                        }
+                                                    })
+                                                },true)    
+                                            }else if(shell.access.failures < 2){
+                                                ldisc.access.failures ++
+                                                ldisc.auth()
+                                            }else{
+                                                ldisc.kill()
+                                            }
+                                        })
+                                        
+                                    },false) }
+                            shell.access    = { user:'', accept:false, failures:0 }
+                            shell.auth()
+                            vt100( shell )
+        
+                    }
+                }
+            }
+    };
+    
+        cfx.on('error',function(e){
+            network.socket.error = e
+            network.socket.connected = socket.connected
+        })
+        cfx.on('socket',function(sock){
+                socket = sock
+                socket.on('error',function(e){
+                    network.socket.error = e
+                    network.socket.connected = socket.connected
+                })
+                network.socket.id = socket.id
+                network.socket.error = 'NONE'
+                network.socket.connected = socket.connected
+                
+        })
+        cfx.on('stream',function(stream, options, socket){
+             switch(options.service){
+                case 'editor':
+    	            stream.path = options.path
+                    editor(stream)
+                    break;
+                case 'pub':
+                    options.channel
+                    break;
+                case 'sub':
+                    options.channel
+                    break;
+            }
+        })
+
+
+        
+    function ot_test(){
+        var ot_pub  = new cfx.createStream({ objectMode:true, service:'pub', channel:'ot'}, socket )
+        var ot_sub  = new cfx.createStream({ objectMode:true, service:'sub', channel:'ot'}, socket )
+        var flag    = 0;
+            remote.context = { id:8192, shared:true }
+           
+            remote.on('get', function(identifier, value){
+                //console.log('get',identifier)
+                //value( objectPath.get(remote.context, identifier ) )
+            })
+            remote.on('set', function(identifier, value){
+                console.log('set', identifier, value)
+                if( flag===0 ){
+                    ot_pub.write({identifier:identifier, value:value })
+                }
+                //objectPath.set( remote.context, identifier, value ) 
+            })
+            ot_sub.on('data',function(ot){
+                console.log(ot)
+                if(objectPath.get(remote, ot.identifier ) !== ot.value ){
+                    flag = 1
+                    objectPath.set( remote, ot.identifier, ot.value ) 
+                    flag = 0
+                }
+            })
+            remote.proxy( remote.context, 'context' )
+
+        
+    }
+        
+        
+        local.on('get', function(identifier){ 
+             //objectPath.get(remote.object, endpoint.path ) 
+        })
+        local.on('set', function(identifier,value){ 
+                var el = $('[oid="' +  identifier + '.value"]');
+                if( el.is(":focus")!==true){ el.text(value) }
+        })
+        
+        local.proxy(network,'network')
+        
+        
+    var transforms  = {
+        object: { '<>': 'div', class: 'bracket ${show} ${type}',  html: [
+                    { '<>': 'div', class: 'header', oid: '${oid}' + '.header',  html: [
+                        {   '<>': 'div',  class: getArrow },
+                		{   '<>': 'span', class: 'name',  oid: '${oid}' + '.name',    html: '${name} : ' },
+                		{   '<>': 'span', class: 'value', oid: '${oid}' + '.value',   html: function (obj) { return  getValue(obj.value) } },
+                		{   '<>': 'span', class: 'plot',  oid: '${oid}' + '.plot',    html: '' }
+                	]},
+                	{   '<>': 'div', class: 'children',  html: function (obj) { return getChildren(obj.value); } }
+                ]}
+    };
+        toHTML(network,"network")
+
+        function vt100(transport){
+            
+            var xterm = new Terminal({ cols: 80, rows: 24, screenKeys: true, convertEol:true, cursorBlink:true });
+            
+                transport.width    = 700
+    	        transport.height   = 420
+                xwindow(transport);
+                xterm.open( document.getElementById(transport.id) );
+                
+                transport.on('data',function(data){
+                    xterm.write(data.toString())
+                })
+                xterm.on('data',function(data,e,f){
+                    transport.write(data)
+                })
+                transport.on('end',function(){
+                    $( "#" + transport.id ).dialog( "destroy" )
+                    xterm.destroy();
+                })
+                transport.on('close',function(){
+                    $( "#" + transport.id ).dialog( "destroy" )
+                    xterm.destroy();
+                })
+            
+        } 
+        function editor(transport){
+            transport.width    = 700
+    	    transport.height   = 400
+            xwindow(transport);
+            var title_bar = '<span style="float:left;">' +
+                                '<button title="share" '+
+                                'style="height:20px;width:30px;" ' +
+                                'id="share_' + transport.id + '"/></span>'+
+                            '<span style="float:left;">' + 
+                                '<button title="save" ' + 
+                                'style="height:20px;width:30px;" ' +
+                                'id="save_' + transport.id + '"/></span>' +
+                            '<span style="float:center;">' + 
+                                '<div id="title_' + transport.id + '"> &nbsp X(' +
+                                transport.id + ')</div></span>';
+                $("#" + transport.id).dialog('option', 'title', title_bar);
+                $('#share_' + transport.id).button({ icons: { primary: 'ui-icon-signal-diag' } })
+                $('#share_' + transport.id).click(function () { var e = { event:'share'} });    
+                $('#save_'  + transport.id).button({ icons: { primary: 'ui-icon-disk' } });
+                $('#save_'  + transport.id).click(function () { 
+                    var e = { event:'save', path:transport.path } 
+                        //ss(socket).emit( transport.id, e );
+                        transport.emit('socket.io',e)
+                });   
+            var edit = ace.edit(transport.id);
+                edit.setByAPI = false;
+                edit.setFontSize(12);
+                edit.setShowPrintMargin(false);
+                edit.setTheme("ace/theme/monokai");
+                edit.getSession().setMode("ace/mode/javascript");
+                edit.on('change', function (delta) {
+                    if(!edit.setByAPI){
+                        transport.write(delta)
+                    }
+                });
+                transport.on('data',function(delta){
+                        edit.setByAPI = true;
+                        edit.getSession().getDocument().applyDeltas( [delta] )
+                        edit.setByAPI = false;
+                })
+                transport.on('end',function(){
+                    $( "#" + transport.id ).dialog( "destroy" )
+                    edit.destroy()
+                })
+                transport.on('close',function(){
+                    $( "#" + transport.id ).dialog( "destroy" )
+                    edit.destroy()
+                })
+
+
+                
+                
+        
+    }
+
+        function createPlotter(oid,ref,epoch){
+            var el = $('[oid="' + oid + '"]')
+            var plotter = {
+                    samples:    [],
+                    sampleMax:  100,
+                    start:      Date.now(),
+                    ts:         Date.now(),
+                    epoch:      0,
+                    style:      {
+                                type: 'line',
+                                width:200,
+                                height:20,
+                                //tooltipSuffix: ' ' + ref,
+                                lineColor: '#cc8139',
+                                fillColor: '#595540',
+                                spotColor: '#cc8139',
+                                minSpotColor: '#cc8139',
+                                maxSpotColor: '#cc8139',
+                                highlightSpotColor: '#cc8139',
+                                highlightLineColor: '#cc8139',
+                                normalRangeColor: '#cc8139'
+                    },
+                    update:     function(value){
+                                if( Date.now()-plotter.ts > 100 ){
+                                    plotter.epoch   = Date.now()-plotter.ts;
+                                    plotter.ts      = Date.now();
+                                    plotter.samples.push(value)
+                                    if (plotter.samples.length > plotter.sampleMax){
+                                        plotter.samples.splice(0,1);
+                                    }
+                                    el.sparkline(plotter.samples, plotter.style )
+                                }
+                    },
+                    interval:setInterval( function(){ plotter.update( objectPath.get(window, ref) ) }, epoch )
+            }
+            
+            return plotter
+            
+        }
+        function xwindow(X){
+                    if($('#' + X.id).length ){ return false}
+                    xIndex+=20;
+                    var div     = { 
+                            id: X.id, 
+                            style: 'background-image: url("unit1.png"); background-repeat:no-repeat; background-size: contain;background-position: center;'
+                        };
+                    var dialog  = {
+                            "width": X.width,
+                            "height": X.height,
+                            "minHeight":X.height,
+                            "minWidth": X.width,
+                            "position": [50 + xIndex   ,50 + xIndex],
+                            "title": "X(" + X.id + ")",
+                            "style":'font-size: 20pt; background-image: url("unit1.png"); background-repeat:no-repeat; background-size: contain;background-position: center;',
+                            "close" : function(event, ui){ X.end(); $("#" + X.id).remove()  }
+                        };
+                    var extend = {
+                            "closable": true,
+                            "minimizable": true,
+                            "maximizable": true,
+                            "collapsable": true,
+                            "dblclick": "collapse",
+                            "titlebar": "transparent",
+                            "minimizeLocation": "left"
+                        }
+                    var ui = $('<div/>', div )
+                        .appendTo( "body" )
+                        .dialog( dialog )
+                        .dialogExtend( extend )
+                        .data("uiDialog")._title = function (title) { title.html(this.options.title); };
+                        //document.getElementById( X.id).style.textShadow = "1px 1px 1px #000000";
+                    return true
+        }
+        function getArrow(obj){
+            if (getValue(obj.value) !== undefined) 
+            return ('arrow hide');
+            else 
+            return ('arrow');
+        }
+        function toHTML(json, path) {
+            $('#' + path).html('');
+            $('#' + path).json2html(convert(path, path, json, 'open', path), transforms.object);
+            regEvents();
+            visable = $('.value[oid*="odrv0"]:visible')
+        }
+        function getValue(obj) {
+            var type = $.type(obj);
+            switch (type) {
+                case 'array':
+                case 'object':
+                    return undefined;
+                    break;
+                case 'function':
+                    return '()';
+                    break;
+                case 'string':
+                    return obj ;
+                    break;
+                default:
+                    return obj;
+                    break;
+            }
+        }
+        function getChildren(obj) {
+            var type = $.type(obj);
+            switch (type) {
+                case 'array':
+                case 'object':
+                    return (json2html.transform(obj, transforms.object));
+                    break;
+                default:
+                    break;
+            }
+        }
+        function convert(oid, name, obj, show, path) {
+            var type = $.type(obj);
+            var value = [];
+            var delimiter = "";
+            if (oid != '') { delimiter = "."; }
+    
+            switch (type) {
+                case 'array':
+                    var len = obj.length;
+                    show = 'closed';
+                    for (var j = 0; j < len; ++j) {
+                        if (path.indexOf(oid + delimiter + j) > -1 || oid == ''||path===oid) {
+                            show = 'open';
+                        } 
+                        value[j] = convert(oid + delimiter + j, j, obj[j], show, path);
+                    }
+                    break;
+                case 'object':
+                    var j = 0;
+                    show = 'closed';
+                    for (var prop in obj) {
+                        if (path.indexOf(oid + delimiter + prop) > -1 || oid == '' || path === oid) {
+                            show = 'open';
+                        }
+                        value[j] = convert(oid + delimiter + prop, prop, obj[prop], show, path);
+                        j++;
+                    }
+                    break;
+                default:
+                    show = 'closed';
+    
+                    value = obj;
+                    break;
+            }
+            return ({ 'oid': oid, 'name': name, 'value': value, 'type': type, 'show': show, 'path': path});
+        }
+        function regEvents() {
+            $('.bracket.object').off('click').on('click',  function () {
+                visable = $('.value[oid*="odrv0"]:visible')
+            })
+            $('.header').off('click').on('click',  function () {
+                var oid =  $(this).attr('oid').replace('.header','') 
+                var parent = $(this).parent();
+                if (parent.hasClass('closed')) {
+                    parent.removeClass('closed');
+                    parent.addClass('open');
+                } else 
+                if (parent.hasClass('open')){
+                    parent.removeClass('open');
+                    parent.addClass('closed');
+                }
+                
+            });
+            $('.value').off('click').on('click', function (event) {
+                    var oid = $(this).attr('oid').replace('.value','')
+                    if($(this).text()==='()'){
+                         objectPath.get(window, oid )()
+                    }else{
+                        $(this).prop('contenteditable', true);
+                        $(this).css('background-color', '#cc8139')
+                        $(this).focus()
+                        
+                       
+                    }
+            })
+            $('.value').blur( function () {
+                    var oid = $(this).attr('oid').replace('.value','')
+                    var value   =   $(this).text()
+                    $(this).prop('contenteditable', false);
+                    $(this).css('background-color', '#262626');
+                    if(value!=='()'){
+                        objectPath.set(window, oid, value  );
+                    }
+            });
+    
+        }
+
+    
+    
+
+    </script>
+</body>
