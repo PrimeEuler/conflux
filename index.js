@@ -38,7 +38,9 @@ function conflux(){
             return stream
         }
         self.listen         = function(port,cb){
-            server.listen(port,cb)
+            server.listen(port,function(){
+                cb(this.address())
+            })
         }
         self.channels       = []
         self.inodes         = {}
@@ -48,6 +50,7 @@ function conflux(){
                 stream.emit(e.event,e.data);
             }
             function absorb(){
+                stream.emit('socket.io', { event:'end' } )
                 ss(socket).removeListener(stream.id,emit)
             }
             ss(socket).on( stream.id, emit ) ;

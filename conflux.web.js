@@ -85,6 +85,7 @@ function conflux(){
                 stream.emit(e.event,e.data);
             }
             function absorb(){
+                stream.emit('socket.io', { event:'end' } )
                 self.ss(socket).removeListener(stream.id,emit)
             }
             self.ss(socket).on( stream.id, emit ) ;
