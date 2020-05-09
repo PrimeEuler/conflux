@@ -7,7 +7,6 @@ var io          = require('socket.io');
 var ss          = require('socket.io-stream');
 var ssh2        = require('ssh2');
 var utils       = ssh2.utils;
-
 function conflux(){
     var self    = new events.EventEmitter()
     var pki     = {
@@ -21,9 +20,6 @@ function conflux(){
              TODO: add support for ssh2 server 
          */
     var ssh2server = new ssh2.Server({ hostKeys: [pki] },  on_connection );
-
-            
-    var server  = require('https').createServer(pki , api);
         self.pubsub         = require('pubsub-js');
         self.use            = function( path ){
             api.use(express.static(path));
@@ -37,14 +33,21 @@ function conflux(){
                 ss(socket).emit('stream', stream, options )
             return stream
         }
-        self.listen         = function(port,cb){
-            server.listen(port,function(){
-                cb(this.address())
-            })
+        self.listen         = function(port,cb,tls){
+            var server  = require('http').createServer( api );
+                if(tls){
+                    server = require('https').createServer( tls.pki || pki , api );
+                }
+                server.listen(port,function(){
+                    var info = this.address()
+                        info.tls = tls?true:false;
+                        cb(info)
+                })
+                io(server).on('connection', on_connection ) ;
         }
         self.channels       = []
         self.inodes         = {}
-        io(server).on('connection', on_connection ) ;
+        
         function sbind(stream,socket){
             function emit(e){
                 stream.emit(e.event,e.data);
